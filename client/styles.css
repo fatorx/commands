@@ -1,0 +1,201 @@
+/* styles.css — cockpit de alto contraste, grade de zonas rígida.
+
+Zona A: contexto + conexão (sem estado de microfone). Zona B: coluna varrível de
+ações. Zona C: cartões glanceable, não interativos. Alvos grandes e espaçados
+para switch / ponteiro adaptativo (Dia 10 valida dwell).
+*/
+:root {
+  --fundo: #111;
+  --painel: #1c1c1c;
+  --texto: #f5f5f5;
+  --cursor: #ffd700;
+  --verde: #7cfc00;
+  --vermelho: #ff6666;
+  --borda: #444;
+  --fonte: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--fonte);
+  display: flex;
+  flex-direction: column;
+}
+#zona-a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--painel);
+  border-bottom: 2px solid var(--borda);
+  font-size: 1.1rem;
+}
+#conexao.estado.conectado { color: var(--verde); }
+#conexao.estado.desconectado { color: var(--vermelho); }
+.grade {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 1rem;
+  padding: 1rem;
+  min-height: 0;
+}
+#zona-b, #zona-c {
+  background: var(--painel);
+  border: 2px solid var(--borda);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow: auto;
+}
+#zona-b h2, #zona-c h2 { margin-top: 0; font-size: 1.2rem; }
+#zona-c {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  background: #262626;
+  border: 2px solid var(--borda);
+  border-radius: 8px;
+}
+.card-titulo { font-weight: 700; }
+.card-corpo { color: #ddd; font-size: 0.95rem; }
+.semafaros {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.semafaro::before {
+  content: "";
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+  background: #888;
+}
+.semafaro-estado { margin-left: 0.5rem; color: #bbb; font-size: 0.85rem; }
+.barra {
+  height: 1.4rem;
+  background: #333;
+  border: 1px solid var(--borda);
+  border-radius: 4px;
+  margin: 0.3rem 0;
+}
+.barra-preenchimento {
+  height: 100%;
+  background: var(--cursor);
+  border-radius: 4px;
+}
+.barra-rotulo { font-size: 0.9rem; }
+.semafaro.healthy::before { background: var(--verde); }
+.semafaro.starting::before { background: #ffd700; }
+.semafaro.unhealthy::before { background: var(--vermelho); }
+.semafaro.down::before { background: #888; }
+#lista-zona-b {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  outline: none;
+}
+.grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.grupo-rotulo {
+  padding: 0.4rem 0.8rem;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--cursor);
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--borda);
+  cursor: pointer;
+}
+.grupo.inativo .acao { opacity: 0.35; }
+.grupo.inativo .grupo-rotulo { opacity: 0.45; }
+.grupo-rotulo.scanned {
+  background: var(--cursor);
+  color: #000;
+  border-radius: 6px;
+  outline: 4px solid #fff;
+  outline-offset: 2px;
+}
+.acao.pseudo-voltar {
+  background: #262626;
+  color: var(--texto);
+  border-color: var(--borda);
+}
+.acao {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.6rem 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--texto);
+  background: #262626;
+  border: 3px solid var(--borda);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.acao[data-destrutivo="true"] { border-color: var(--vermelho); }
+.acao.scanned {
+  background: var(--cursor);
+  color: #000;
+  border-color: #fff;
+  outline: 4px solid #fff;
+  outline-offset: 2px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  background: #262626;
+  border: 2px solid var(--borda);
+  border-radius: 8px;
+}
+.card-titulo { font-weight: 700; }
+#resultado {
+  min-height: 3rem;
+  padding: 0.6rem 1rem;
+  border-top: 2px solid var(--borda);
+  font-size: 1.05rem;
+}
+#botao-switch {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  min-height: 3.5rem;
+  padding: 0.6rem 1.2rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  background: var(--cursor);
+  color: #000;
+  border: 3px solid #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) {
+  .acao, .grupo-rotulo, .card { border-color: ButtonText; }
+  .acao.scanned, .grupo-rotulo.scanned { outline: 4px solid Highlight; background: HighlightText; }
+  .semafaro::before { background: ButtonText; }
+  .barra-preenchimento { background: Highlight; }
+}

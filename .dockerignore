@@ -1,0 +1,9 @@
+data/
+tmp/
+.git/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/

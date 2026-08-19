@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cockpit</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="zona-a" aria-label="Contexto e conexão">
+    <div id="contexto">workspace: …</div>
+    <div id="conexao" class="estado">conectando…</div>
+  </header>
+
+  <main class="grade">
+    <section id="zona-b" aria-label="Ações (varrível)">
+      <h2 id="titulo-zona-b">Pilotar ambiente</h2>
+      <div id="lista-zona-b" role="listbox" data-scan="true"></div>
+    </section>
+
+    <aside id="zona-c" aria-label="Telemetria (glanceable)" data-scan="false">
+      <h2>Telemetria</h2>
+      <div class="card" data-region="infra">
+        <span class="card-titulo">Infra</span>
+        <div class="card-corpo" aria-live="polite">…</div>
+      </div>
+      <div class="card" data-region="git">
+        <span class="card-titulo">Git</span>
+        <div class="card-corpo" aria-live="polite">…</div>
+      </div>
+      <div class="card" data-region="health">
+        <span class="card-titulo">Saúde do código</span>
+        <div class="card-corpo" aria-live="polite">…</div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="resultado" aria-live="polite"></div>
+
+  <button id="botao-switch" type="button" tabindex="-1">Selecionar (espaço)</button>
+
+  <script src="scanner.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

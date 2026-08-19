@@ -1,0 +1,48 @@
+# Stack de demonstração do cockpit — espelha o formato do commands-stack real
+# (docs/infra/DEFINITION-01.md) para o cockpit ter semáforos de verdade sem
+# depender do projeto externo.
+#
+# Para apontar os comandos de containers (subir/derrubar/status) à stack real,
+# defina STACK_DIR=<diretório do commands-stack> ao subir o cockpit.
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: cockpit
+      POSTGRES_PASSWORD: cockpit
+      POSTGRES_DB: cockpit
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cockpit -d cockpit"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  client:
+    image: nginx:alpine
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "localhost/"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  app:
+    image: busybox:latest
+    command: ["sh", "-c", "echo cockpit-demo no ar; sleep 3600"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

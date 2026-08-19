@@ -1,0 +1,22 @@
+.vscode
+.idea
+.
+data
+.env
+tmp
+__pycache__/
+*.pyc
+
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+npm-debug.log
+yarn-error.log
+
+# Playwright
+test-results/
+playwright-report/
+
+# Pytest
+.pytest_cache/

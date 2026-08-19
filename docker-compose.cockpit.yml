@@ -1,0 +1,35 @@
+# O próprio cockpit rodando em Docker (host na porta 8000).
+# A stack de demonstração que ele controla é o docker-compose.yml.
+# `db` é o Postgres do cockpit (persistência/migrations); o cockpit aguarda
+# o healthcheck antes de subir. Aplicar o schema com:
+#   docker compose -f docker-compose.cockpit.yml exec cockpit alembic upgrade head
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: cockpit
+      POSTGRES_PASSWORD: cockpit
+      POSTGRES_DB: cockpit
+    volumes:
+      - cockpit_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cockpit -d cockpit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  cockpit:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      WORKSPACE: vertical-manager
+      DATABASE_URL: postgresql+psycopg://cockpit:cockpit@db:5432/cockpit
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  cockpit_pgdata:

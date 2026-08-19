@@ -1,0 +1,28 @@
+[project]
+name = "commands-cockpit"
+version = "0.1.0"
+description = "Cockpit multimodal switch-first para controle de ambiente de desenvolvimento"
+authors = [{ name = "fatorx" }]
+readme = "README.md"
+requires-python = ">=3.10,<4"
+dependencies = [
+    "websockets>=16",
+    "pydantic>=2",
+    "httpx>=0.27",
+    "alembic (>=1.19.1,<2.0.0)",
+    "psycopg[binary] (>=3.3.4,<4.0.0)",
+]
+
+[tool.poetry]
+packages = [
+    { include = "server" },
+    { include = "engine" },
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8"
+pytest-asyncio = ">=1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
