@@ -9,7 +9,7 @@
 <body>
   <header id="zona-a" aria-label="Contexto e conexão">
     <div id="contexto">workspace: …</div>
-    <div id="conexao" class="estado">conectando…</div>
+    <div id="conexao" class="estado" role="status" aria-live="polite">conectando…</div>
   </header>
 
   <main class="grade">
@@ -39,6 +39,7 @@
 
   <button id="botao-switch" type="button" tabindex="-1">Selecionar (espaço)</button>
 
+  <script src="conexao.js"></script>
   <script src="scanner.js"></script>
   <script src="app.js"></script>
 </body>

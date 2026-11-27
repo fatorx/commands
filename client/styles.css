@@ -36,6 +36,15 @@ body {
 }
 #conexao.estado.conectado { color: var(--verde); }
 #conexao.estado.desconectado { color: var(--vermelho); }
+/* Sem enlace, os dados das zonas B/C podem estar velhos: esmaece + borda tracejada
+   (pista não só de cor, vale também em forced-colors). */
+body[data-conexao="desconectado"] #zona-b,
+body[data-conexao="desconectado"] #zona-c,
+body[data-conexao="reconectando"] #zona-b,
+body[data-conexao="reconectando"] #zona-c {
+  opacity: 0.55;
+  border-style: dashed;
+}
 .grade {
   flex: 1;
   display: grid;
