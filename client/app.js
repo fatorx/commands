@@ -1,7 +1,8 @@
-/* app.js — cola o client ao WebSocket e à varredura.
+/* app.js — cola o client ao WebSocket (com reconexão, ver conexao.js) e à varredura.
 
-Roteia as mensagens do protocolo: status -> Zona A, options -> Zona B (via
-Scanner), result -> resultado falado/exibido. Panel entra no Dia 5 (Zona C).
+Roteia as mensagens do protocolo: status -> Zona A (contexto), options -> Zona B
+(via Scanner), result -> resultado falado/exibido, panel -> Zona C (telemetria,
+nunca varrida). A badge de conexão da Zona A segue o estado real do enlace.
 Vanilla JS, sem build.
 */
 (function () {
@@ -10,7 +11,6 @@ Vanilla JS, sem build.
   const Cockpit = window.Cockpit;
 
   const audio = new Cockpit.AudioCues();
-  const ws = new WebSocket(`ws://${location.host}/`);
   const zonaB = $('#lista-zona-b');
 
   const params = new URLSearchParams(location.search);
@@ -35,14 +35,47 @@ Vanilla JS, sem build.
   const estadosInfra = new Map(); // nome do serviço -> último estado (earcons)
 
   function enviarIntent(intent) {
-    ws.send(JSON.stringify({ type: 'intent', intent: intent.intent, params: intent.params || {} }));
+    const enviado = conexao.enviar({
+      type: 'intent', intent: intent.intent, params: intent.params || {},
+    });
+    if (!enviado) {
+      // Nunca enfileira: reexecutar às cegas, depois, um comando destrutivo seria
+      // perigoso. O usuário é avisado e repete a ação quando reconectar.
+      const aviso = 'Sem conexão com o servidor. A ação não foi enviada.';
+      $('#resultado').textContent = aviso;
+      audio.falha();
+      falar(aviso);
+    }
+  }
+
+  // A badge de conexão (Zona A) segue o estado REAL do enlace, não uma mensagem
+  // `status` do servidor. Zonas B/C ficam esmaecidas enquanto os dados podem estar velhos.
+  function renderizarConexao(info) {
+    const el = $('#conexao');
+    if (info.estado === 'conectado') {
+      el.textContent = 'conectado';
+      el.className = 'estado conectado';
+      if (info.reconexao) {
+        audio.sucesso();
+        falar('Conexão restabelecida.');
+      }
+    } else if (info.estado === 'desconectado') {
+      const seg = Math.max(1, Math.round((info.atrasoMs || 0) / 1000));
+      el.textContent = `desconectado — nova tentativa em ${seg}s (#${info.tentativa})`;
+      el.className = 'estado desconectado';
+      if (info.caiu) {
+        audio.perigo();
+        falar('Conexão perdida. Reconectando.');
+      }
+    } else {
+      el.textContent = info.estado === 'reconectando' ? 'reconectando…' : 'conectando…';
+      el.className = 'estado';
+    }
+    document.body.dataset.conexao = info.estado;
   }
 
   function renderizarStatus(msg) {
     $('#contexto').textContent = `workspace: ${(msg.context && msg.context.workspace) || '—'}`;
-    const el = $('#conexao');
-    el.textContent = 'conectado';
-    el.className = 'estado conectado';
   }
 
   function renderizarOptions(msg) {
@@ -84,22 +117,25 @@ Vanilla JS, sem build.
       const d = msg.data || {};
       corpo.textContent = `${d.branch || '—'} · ${d.alteracoes ?? 0} alterações`;
     } else if (msg.region === 'health') {
+      // Dado ausente aparece como "sem dados": um zero aqui pareceria "tudo certo".
       const d = msg.data || {};
-      const cx = d.complexidade_max || {};
+      const cx = d.complexidade_max;
       const rotulo = document.createElement('div');
       rotulo.className = 'barra-rotulo';
-      rotulo.textContent =
-        `Complexidade máx: ${cx.modulo || '—'} ${cx.score ?? 0} (${cx.nivel || ''})`;
+      rotulo.textContent = cx
+        ? `Complexidade máx: ${cx.modulo} ${cx.score} (${cx.nivel})`
+        : 'Complexidade máx: sem dados';
       const barra = document.createElement('div');
       barra.className = 'barra';
       const preenchimento = document.createElement('div');
       preenchimento.className = 'barra-preenchimento';
-      preenchimento.style.width = `${Math.min(100, ((cx.score || 0) / 25) * 100)}%`;
+      preenchimento.style.width = `${cx ? Math.min(100, (cx.score / 25) * 100) : 0}%`;
       barra.appendChild(preenchimento);
       const resumo = document.createElement('div');
       resumo.className = 'barra-rotulo';
-      resumo.textContent =
-        `Duplicação ${d.duplicacao_pct ?? 0}% · Alertas de arquitetura ${d.alertas_arquitetura ?? 0}`;
+      const duplicacao = d.duplicacao_pct == null ? 'sem dados' : `${d.duplicacao_pct}%`;
+      const alertas = d.alertas_arquitetura ?? 'sem dados';
+      resumo.textContent = `Duplicação ${duplicacao} · Alertas de arquitetura ${alertas}`;
       corpo.replaceChildren(rotulo, barra, resumo);
     }
   }
@@ -112,10 +148,10 @@ Vanilla JS, sem build.
     speechSynthesis.speak(u);
   }
 
-  ws.onmessage = (e) => {
+  function aoReceber(dados) {
     let msg;
     try {
-      msg = JSON.parse(e.data);
+      msg = JSON.parse(dados);
     } catch (_) {
       return;
     }
@@ -123,13 +159,18 @@ Vanilla JS, sem build.
     else if (msg.type === 'options') renderizarOptions(msg);
     else if (msg.type === 'result') renderizarResultado(msg);
     else if (msg.type === 'panel') renderizarPanel(msg);
-  };
+  }
 
-  ws.onclose = () => {
-    const el = $('#conexao');
-    el.textContent = 'desconectado';
-    el.className = 'estado desconectado';
-  };
+  // Declarada por último: os callbacks acima já existem. Ao reconectar, o servidor
+  // reenvia status/options/panels e o cliente se ressincroniza (a confirmação
+  // destrutiva pendente também é descartada pelo novo `options`).
+  const conexao = new Cockpit.Conexao({
+    url: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/`,
+    onMensagem: aoReceber,
+    onEstado: renderizarConexao,
+  });
+  window.addEventListener('online', () => conexao.tentarAgora());
+  conexao.iniciar();
 
   document.addEventListener('keydown', (e) => scanner.tecla(e));
   document.addEventListener('keyup', (e) => scanner.teclaUp(e));

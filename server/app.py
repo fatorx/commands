@@ -13,7 +13,7 @@ from .commands import build_registry, root_options
 from .core import Dispatcher, IntentEnvelope, OptionsResponse
 from .telemetry import sample_panels
 
-DEFAULT_WS_HOST = os.environ.get("WS_HOST", "0.0.0.0")
+DEFAULT_WS_HOST = os.environ.get("WS_HOST", "127.0.0.1")  # loopback por padrão (segurança)
 DEFAULT_WS_PORT = int(os.environ.get("WS_PORT", "8765"))
 WORKSPACE = os.environ.get("WORKSPACE", "vertical-manager")
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from dataclasses import dataclass
 from .analyzer import AnalyzerError, fetch_health_report
 from .commands import STACK_DIR
 from .schemas import HealthReport
+
+log = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.environ.get("INFRA_POLL_SECONDS", "5"))
 HEALTH_POLL_INTERVAL = float(os.environ.get("HEALTH_POLL_SECONDS", "10"))
@@ -155,10 +158,15 @@ class InfraWorker:
 
     async def run(self, broadcast) -> None:
         while True:
-            atual = await asyncio.to_thread(self._snapshot_fn)
-            if atual is not None and atual != self._ultimo:
-                self._ultimo = atual
-                await broadcast(panel_infra(atual))
+            try:
+                atual = await asyncio.to_thread(self._snapshot_fn)
+                if atual is not None and atual != self._ultimo:
+                    self._ultimo = atual
+                    await broadcast(panel_infra(atual))
+            except Exception:
+                # Um erro inesperado não pode matar a task (a telemetria
+                # congelaria sem aviso): registra e tenta de novo no próximo ciclo.
+                log.exception("InfraWorker: falha no ciclo; mantendo o último estado")
             await asyncio.sleep(self.interval)
 
 
@@ -171,7 +179,7 @@ def panel_saude(report: HealthReport) -> dict:
         "region": "health",
         "data": {
             "duplicacao_pct": resumo.duplicacao_pct if resumo else None,
-            "alertas_arquitetura": resumo.alertas_arquitetura if resumo else 0,
+            "alertas_arquitetura": resumo.alertas_arquitetura if resumo else None,
             "complexidade_max": (
                 {"modulo": cx.modulo, "score": cx.score, "nivel": cx.nivel} if cx else None
             ),
@@ -186,16 +194,23 @@ class HealthWorker:
         self.interval = interval
         self._fetch_fn = fetch_fn or fetch_health_report
         self._ultimo: dict | None = None
+        self._ultimo_erro: str | None = None
 
     async def run(self, broadcast) -> None:
         while True:
             try:
                 report = await asyncio.to_thread(self._fetch_fn)
-            except AnalyzerError:
-                await asyncio.sleep(self.interval)
-                continue  # analyzer fora do ar: mantém o último estado
-            msg = panel_saude(report)
-            if msg != self._ultimo:
-                self._ultimo = msg
-                await broadcast(msg)
+                self._ultimo_erro = None
+                msg = panel_saude(report)
+                if msg != self._ultimo:
+                    self._ultimo = msg
+                    await broadcast(msg)
+            except AnalyzerError as exc:
+                # Analyzer fora do ar ou fora do contrato: mantém o último estado e
+                # avisa uma vez por erro distinto (sem repetir a cada ciclo).
+                if str(exc) != self._ultimo_erro:
+                    self._ultimo_erro = str(exc)
+                    log.warning("HealthWorker: %s", exc)
+            except Exception:
+                log.exception("HealthWorker: falha no ciclo; mantendo o último estado")
             await asyncio.sleep(self.interval)

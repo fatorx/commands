@@ -16,6 +16,10 @@ silencia o anterior (as dicas não colidem).
   'use strict';
   const Cockpit = (window.Cockpit = window.Cockpit || {});
 
+  // Ignora ricochete do switch e clique duplo. Vale na ENTRADA (switch ou clique);
+  // um aceite já admitido nunca é filtrado de novo.
+  const DEBOUNCE_MS = 250;
+
   class AudioCues {
     constructor() {
       this.ctx = null;
@@ -183,30 +187,34 @@ silencia o anterior (as dicas não colidem).
       b.id = `opt-${this._seq++}`;
       b.setAttribute('role', 'option');
       b.tabIndex = -1; // foco fica na listbox; cursor segue aria-activedescendant
-      b.addEventListener('click', () => this._aceitar(item));
+      b.addEventListener('click', () => this._clicar(item));
       if (pai) pai.appendChild(b);
       return b;
     }
 
     mostrarConfirmacao(item) {
       this.baseConfirmacao = { intent: item.cmd_id, titulo: item.titulo };
-      const anteriores = this.ultimosDoServidor; // preserva o menu real p/ cancelarConfirmacao
+      const anteriores = this.ultimosDoServidor; // preserva o menu real p/ fecharConfirmacao
+      // "Cancelar" vem primeiro: o cursor começa na opção segura, e um toque
+      // repetido sem querer (tremor, autoscan) não executa a ação destrutiva.
       this.render([
-        { cmd_id: 'confirmar', titulo: `Confirmar ${item.titulo}?`, destructive: true },
         { cmd_id: 'cancelar', titulo: 'Cancelar' },
+        { cmd_id: 'confirmar', titulo: `Confirmar ${item.titulo}?`, destructive: true },
       ]);
       this.ultimosDoServidor = anteriores;
       this.modoConfirmacao = true;
       this.cues.perigo();
     }
 
-    cancelarConfirmacao() {
+    fecharConfirmacao() {
       this.render(this.ultimosDoServidor);
     }
 
     // ---- alvos por fase ----
 
     _refrescarAlvos() {
+      // desmarca o alvo atual antes de trocar a lista: só um cursor por vez
+      if (this.alvos[this.indice]) this._desmarcar(this.alvos[this.indice]);
       this.alvos = [];
       this.itensAlvo = [];
       this.indice = -1;
@@ -232,7 +240,16 @@ silencia o anterior (as dicas não colidem).
       }
     }
 
+    _limparColuna() {
+      for (const g of this.grupos) g.container.classList.remove('ativo', 'inativo');
+      if (this._pseudo) {
+        this._pseudo.remove();
+        this._pseudo = null;
+      }
+    }
+
     _entrarColuna(idx) {
+      this._limparColuna(); // clique em outro rótulo troca de grupo sem acumular estado
       this.fase = 'coluna';
       this.grupoAtivo = idx;
       const g = this.grupos[idx];
@@ -257,11 +274,7 @@ silencia o anterior (as dicas não colidem).
     _voltarGrupos() {
       this.fase = 'linha';
       this.grupoAtivo = null;
-      for (const g of this.grupos) g.container.classList.remove('ativo', 'inativo');
-      if (this._pseudo) {
-        this._pseudo.remove();
-        this._pseudo = null;
-      }
+      this._limparColuna();
       this._refrescarAlvos();
       this._iniciar();
       this._focar();
@@ -305,19 +318,19 @@ silencia o anterior (as dicas não colidem).
 
     // ---- input (switch / teclado / ponteiro) ----
 
+    _ricochete() {
+      return Date.now() - this.ultimaAcao < DEBOUNCE_MS;
+    }
+
     pressionarInicio() {
-      const agora = Date.now();
-      if (agora - this.ultimaAcao < 250) return; // janela de aceite (debounce)
+      if (this._ricochete()) return;
       if (this.modo === 'autoscan') {
-        this.ultimaAcao = agora;
         this.aceitarAtual();
         return;
       }
       // passo: segurar seleciona; soltar rápido avança
-      this._holdInicio = agora;
       this._holdTimer = setTimeout(() => {
         this._holdTimer = null;
-        this.ultimaAcao = Date.now();
         this.aceitarAtual();
       }, this.janelaAceite);
     }
@@ -327,7 +340,7 @@ silencia o anterior (as dicas não colidem).
       if (this._holdTimer) {
         clearTimeout(this._holdTimer);
         this._holdTimer = null;
-        if (Date.now() - this.ultimaAcao >= 250) {
+        if (!this._ricochete()) {
           this.ultimaAcao = Date.now();
           this._mover(1);
         }
@@ -337,6 +350,7 @@ silencia o anterior (as dicas não colidem).
     aceitarAtual() {
       const alvo = this.itensAlvo[this.indice];
       if (!alvo) return;
+      this.ultimaAcao = Date.now();
       if (alvo.tipo === 'grupo') {
         this.cues.selecionar();
         this._entrarColuna(this.grupos.indexOf(alvo.grupo));
@@ -350,19 +364,18 @@ silencia o anterior (as dicas não colidem).
       this._aceitar(alvo.item);
     }
 
-    _aceitar(item) {
-      const agora = Date.now();
-      if (agora - this.ultimaAcao < 250) return;
-      this.ultimaAcao = agora;
+    _clicar(item) {
+      if (this._ricochete()) return;
+      this.ultimaAcao = Date.now();
+      this._aceitar(item);
+    }
 
+    _aceitar(item) {
       if (this.modoConfirmacao) {
         this.cues.selecionar();
-        if (item.cmd_id === 'confirmar') {
-          this.modoConfirmacao = false;
-          this.onSelect(this.baseConfirmacao);
-        } else {
-          this.cancelarConfirmacao();
-        }
+        const intencao = this.baseConfirmacao;
+        this.fecharConfirmacao(); // o servidor responde só `result`: o menu volta aqui
+        if (item.cmd_id === 'confirmar') this.onSelect(intencao);
         return;
       }
 

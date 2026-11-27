@@ -1,8 +1,11 @@
-# O próprio cockpit rodando em Docker (host na porta 8000).
+# O próprio cockpit rodando em Docker (http://localhost:8000, só loopback do host).
 # A stack de demonstração que ele controla é o docker-compose.yml.
 # `db` é o Postgres do cockpit (persistência/migrations); o cockpit aguarda
 # o healthcheck antes de subir. Aplicar o schema com:
 #   docker compose -f docker-compose.cockpit.yml exec cockpit alembic upgrade head
+# Nome de projeto próprio: não disputa o serviço `db` com a stack de demonstração.
+name: cockpit-app
+
 services:
   db:
     image: postgres:15-alpine
@@ -22,10 +25,17 @@ services:
   cockpit:
     build: .
     ports:
-      - "8000:8000"
+      # Só loopback do host: o cockpit controla o docker (socket montado abaixo).
+      - "127.0.0.1:8000:8000"
     environment:
+      HOST: 0.0.0.0  # dentro do container; a exposição real é limitada pela porta acima
       WORKSPACE: vertical-manager
       DATABASE_URL: postgresql+psycopg://cockpit:cockpit@db:5432/cockpit
+    volumes:
+      # Daemon do host: permite ao cockpit rodar `docker compose` na stack.
+      # ATENÇÃO: acesso ao socket equivale a root no host — use só em máquina
+      # confiável e mantenha a porta 8000 fora de redes não confiáveis.
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy
