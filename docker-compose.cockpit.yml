@@ -3,6 +3,9 @@
 # `db` é o Postgres do cockpit (persistência/migrations); o cockpit aguarda
 # o healthcheck antes de subir. Aplicar o schema com:
 #   docker compose -f docker-compose.cockpit.yml exec cockpit alembic upgrade head
+# Nome de projeto próprio: não disputa o serviço `db` com a stack de demonstração.
+name: cockpit-app
+
 services:
   db:
     image: postgres:15-alpine

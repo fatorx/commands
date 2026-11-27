@@ -3,7 +3,8 @@
 FROM python:3.12-slim
 
 ENV POETRY_VIRTUALENVS_CREATE=false \
-    POETRY_VERSION=2.4.1
+    POETRY_VERSION=2.4.1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -18,7 +19,8 @@ COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-compose \
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main --no-root
+# Inclui o grupo dev: o comando `testes` roda o pytest dentro do container.
+RUN poetry install --no-root
 
 COPY . .
 

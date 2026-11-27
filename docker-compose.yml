@@ -4,6 +4,11 @@
 #
 # Para apontar os comandos de containers (subir/derrubar/status) à stack real,
 # defina STACK_DIR=<diretório do commands-stack> ao subir o cockpit.
+#
+# Nome de projeto fixo: não colide com o docker-compose.cockpit.yml, e o cockpit
+# no host ou em container enxerga a mesma stack.
+name: cockpit-demo
+
 services:
   db:
     image: postgres:15-alpine
