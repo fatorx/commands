@@ -1,9 +1,10 @@
 """commands.py — catálogo de comandos do cockpit.
 
-Dia 3: comandos reais. `subir/derrubar/status_containers` chamam `docker compose`
-no diretório da stack (STACK_DIR, padrão: a raiz deste repo, que traz o compose
-de demonstração); `testes` roda a própria suíte pytest; a saúde do código vem do
-fake_analyzer (dublê do contrato — o Dia 8 troca a fonte pelo analyzer real).
+`subir/derrubar/status_containers` chamam `docker compose` no diretório da stack
+(STACK_DIR, padrão: a raiz deste repo, que traz o compose de demonstração);
+`testes` roda a própria suíte pytest; a saúde do código vem de
+server/analyzer.py (analyzer real via ANALYZER_URL, ou o dublê fake_analyzer).
+Os achados são buscados sob demanda e congelados por sessão em `registry.state`.
 """
 from __future__ import annotations
 
@@ -15,11 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .analyzer import fetch_health_report
+from .analyzer import AnalyzerError, fetch_health_report
 from .core import Command, IntentEnvelope, OptionsItem, OptionsResponse, Registry, ResultResponse
 from .schemas import HealthReport
 
 ROOT_TITLE = "Pilotar ambiente"
+ACHADOS_KEY = "achados"  # chave do snapshot de achados em Registry.state
 COCKPIT_DIR = Path(__file__).resolve().parent.parent
 STACK_DIR = os.environ.get("STACK_DIR", str(COCKPIT_DIR))
 
@@ -113,7 +115,22 @@ async def _testes(envelope: IntentEnvelope, registry: Registry) -> ResultRespons
     )
 
 
-async def _saude_codigo(envelope: IntentEnvelope, registry: Registry) -> OptionsResponse:
+async def _saude_codigo(
+    envelope: IntentEnvelope, registry: Registry
+) -> OptionsResponse | ResultResponse:
+    # O fetch é HTTP síncrono: roda em thread para não travar o event loop das
+    # demais conexões. O snapshot fica na sessão para os `item::N` seguintes
+    # enxergarem a mesma lista (índices estáveis durante a navegação).
+    try:
+        achados = await asyncio.to_thread(_achados)
+    except AnalyzerError as exc:
+        return ResultResponse(
+            "Saúde do código",
+            f"Analyzer indisponível: {exc}",
+            "Não foi possível obter a saúde do código.",
+            ok=False,
+        )
+    registry.state[ACHADOS_KEY] = achados
     items = [
         OptionsItem(
             f"item::{i}",
@@ -122,23 +139,40 @@ async def _saude_codigo(envelope: IntentEnvelope, registry: Registry) -> Options
             detalhe=achado.get("detalhe"),
             detalhe_fala=achado.get("detalhe_fala", achado["titulo"]),
         )
-        for i, achado in enumerate(_achados())
+        for i, achado in enumerate(achados)
     ]
     items.append(OptionsItem("voltar", "Voltar"))
     return OptionsResponse("Saúde do código", items)
-
-
-def _achado_de(envelope: IntentEnvelope) -> dict:
-    _, _, n = envelope.intent.rpartition("::")
-    return _achados()[int(n)]
 
 
 def _numero(envelope: IntentEnvelope) -> str:
     return envelope.intent.rpartition("::")[2]
 
 
-async def _item(envelope: IntentEnvelope, registry: Registry) -> OptionsResponse:
-    achado = _achado_de(envelope)
+def _achado_de(envelope: IntentEnvelope, registry: Registry) -> dict | None:
+    """Achado do snapshot da sessão, ou None se o índice não existe mais."""
+    n = _numero(envelope)
+    achados = registry.state.get(ACHADOS_KEY, [])
+    if not n.isdigit() or int(n) >= len(achados):
+        return None
+    return achados[int(n)]
+
+
+def _achado_ausente() -> ResultResponse:
+    return ResultResponse(
+        "Achado indisponível",
+        "Esse achado não existe mais; reabra a Saúde do código.",
+        "Esse achado não existe mais. Reabra a saúde do código.",
+        ok=False,
+    )
+
+
+async def _item(
+    envelope: IntentEnvelope, registry: Registry
+) -> OptionsResponse | ResultResponse:
+    achado = _achado_de(envelope, registry)
+    if achado is None:
+        return _achado_ausente()
     return OptionsResponse(
         achado["titulo"],
         [
@@ -154,7 +188,9 @@ async def _item(envelope: IntentEnvelope, registry: Registry) -> OptionsResponse
 
 
 async def _detalhe_item(envelope: IntentEnvelope, registry: Registry) -> ResultResponse:
-    achado = _achado_de(envelope)
+    achado = _achado_de(envelope, registry)
+    if achado is None:
+        return _achado_ausente()
     return ResultResponse(
         "Detalhe",
         achado.get("detalhe", achado["titulo"]),
@@ -238,9 +274,13 @@ def build_registry() -> Registry:
         Command("derrubar_containers", "Derrubar containers", _derrubar_containers, group="Infra", destructive=True)
     )
     registry.register(Command("status_containers", "Status dos containers", _status_containers, group="Infra"))
-    for i in range(len(_achados())):
-        registry.register(Command(f"item::{i}", f"Achado {i}", _item, group="Achados"))
-        registry.register(Command(f"detalhe_item::{i}", "Ver detalhe", _detalhe_item, group="Ações"))
+    # Achados são dinâmicos: nada de chamar o analyzer aqui (rodaria a cada
+    # conexão e derrubaria o enlace se ele estivesse fora). Prefixos atendem
+    # item::N / detalhe_item::N contra o snapshot da sessão (registry.state).
+    registry.register_prefix("item::", Command("item::", "Achado", _item, group="Achados"))
+    registry.register_prefix(
+        "detalhe_item::", Command("detalhe_item::", "Ver detalhe", _detalhe_item, group="Ações")
+    )
     return registry
 
 

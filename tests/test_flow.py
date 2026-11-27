@@ -73,6 +73,113 @@ async def test_handler_com_excecao_nao_derruba(session: Session) -> None:
     assert msgs[0]["ok"] is False
 
 
+async def test_dispatcher_captura_excecao_de_handler() -> None:
+    from server.core import Command, Registry
+
+    async def quebra(envelope, registry):
+        raise RuntimeError("bug no handler")
+
+    registry = Registry()
+    registry.register(Command("quebra", "Quebra", quebra))
+    msgs = await Session(registry).handle(IntentEnvelope("quebra"))
+    assert msgs[0]["type"] == "result"
+    assert msgs[0]["ok"] is False
+    assert "bug no handler" in msgs[0]["detalhe"]
+
+
+def test_build_registry_nao_chama_o_analyzer(monkeypatch) -> None:
+    # Item 5: conectar não pode depender do analyzer (nem derrubar se ele cair).
+    def explode():
+        raise AssertionError("analyzer chamado em build_registry")
+
+    monkeypatch.setattr("server.commands.fetch_health_report", explode)
+    registry = build_registry()
+    assert registry.get("item::3") is not None
+    assert registry.get("detalhe_item::3") is not None
+
+
+async def test_saude_codigo_com_analyzer_fora_devolve_result(session: Session, monkeypatch) -> None:
+    from server.analyzer import AnalyzerError
+
+    def fora():
+        raise AnalyzerError("conexão recusada")
+
+    monkeypatch.setattr("server.commands.fetch_health_report", fora)
+    msgs = await session.handle(IntentEnvelope("saude_codigo"))
+    assert msgs[0]["type"] == "result"
+    assert msgs[0]["ok"] is False
+    assert "conexão recusada" in msgs[0]["detalhe"]
+    assert len(session.stack) == 1  # não empilhou navegação
+
+
+async def test_saude_codigo_nao_bloqueia_o_event_loop(session: Session, monkeypatch) -> None:
+    # Item 4: o fetch (HTTP síncrono) roda em thread; o loop segue respondendo.
+    import asyncio
+    import threading
+    import time
+
+    from server.schemas import HealthReport
+    from engine.schemas import EXEMPLO_RESPOSTA
+
+    thread_do_fetch = []
+
+    def lento():
+        thread_do_fetch.append(threading.current_thread())
+        time.sleep(0.2)
+        return HealthReport.model_validate(EXEMPLO_RESPOSTA)
+
+    monkeypatch.setattr("server.commands.fetch_health_report", lento)
+    batidas = 0
+
+    async def batimento():
+        nonlocal batidas
+        while True:
+            await asyncio.sleep(0.01)
+            batidas += 1
+
+    tarefa = asyncio.create_task(batimento())
+    msgs = await session.handle(IntentEnvelope("saude_codigo"))
+    tarefa.cancel()
+    assert msgs[0]["type"] == "options"
+    assert thread_do_fetch[0] is not threading.main_thread()
+    assert batidas >= 5  # o loop continuou rodando durante os 200 ms do fetch
+
+
+async def test_indices_estaveis_durante_a_navegacao(session: Session, monkeypatch) -> None:
+    # Item 6: depois de listar, item::N usa o snapshot da sessão — mesmo que o
+    # relatório do analyzer mude (ou suma) no meio do caminho.
+    from engine.schemas import EXEMPLO_RESPOSTA
+    from server.schemas import HealthReport
+
+    msgs = await session.handle(IntentEnvelope("saude_codigo"))
+    titulo_0 = msgs[0]["items"][0]["titulo"]
+
+    def mudou():
+        return HealthReport()  # relatório agora vazio
+
+    monkeypatch.setattr("server.commands.fetch_health_report", mudou)
+    msgs = await session.handle(IntentEnvelope("item::0"))
+    assert msgs[0]["type"] == "options"
+    assert msgs[0]["title"] == titulo_0
+
+
+async def test_item_sem_listar_antes_e_indice_invalido(session: Session) -> None:
+    # Sem `saude_codigo` antes, ou com índice lixo: erro claro, sem exceção.
+    for intent in ("item::0", "detalhe_item::0", "item::999", "item::abc", "detalhe_item::-1"):
+        msgs = await session.handle(IntentEnvelope(intent))
+        assert msgs[0]["type"] == "result"
+        assert msgs[0]["ok"] is False
+        assert "reabra" in msgs[0]["detalhe"].lower()
+    assert len(session.stack) == 1
+
+
+async def test_sessoes_nao_compartilham_snapshot() -> None:
+    a, b = Session(build_registry()), Session(build_registry())
+    await a.handle(IntentEnvelope("saude_codigo"))
+    msgs = await b.handle(IntentEnvelope("item::0"))
+    assert msgs[0]["ok"] is False
+
+
 async def test_subir_containers_chama_compose(session: Session, monkeypatch) -> None:
     chamadas = []
 

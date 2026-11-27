@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from dataclasses import dataclass
 from .analyzer import AnalyzerError, fetch_health_report
 from .commands import STACK_DIR
 from .schemas import HealthReport
+
+log = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.environ.get("INFRA_POLL_SECONDS", "5"))
 HEALTH_POLL_INTERVAL = float(os.environ.get("HEALTH_POLL_SECONDS", "10"))
@@ -155,10 +158,15 @@ class InfraWorker:
 
     async def run(self, broadcast) -> None:
         while True:
-            atual = await asyncio.to_thread(self._snapshot_fn)
-            if atual is not None and atual != self._ultimo:
-                self._ultimo = atual
-                await broadcast(panel_infra(atual))
+            try:
+                atual = await asyncio.to_thread(self._snapshot_fn)
+                if atual is not None and atual != self._ultimo:
+                    self._ultimo = atual
+                    await broadcast(panel_infra(atual))
+            except Exception:
+                # Um erro inesperado não pode matar a task (a telemetria
+                # congelaria sem aviso): registra e tenta de novo no próximo ciclo.
+                log.exception("InfraWorker: falha no ciclo; mantendo o último estado")
             await asyncio.sleep(self.interval)
 
 
@@ -191,11 +199,12 @@ class HealthWorker:
         while True:
             try:
                 report = await asyncio.to_thread(self._fetch_fn)
+                msg = panel_saude(report)
+                if msg != self._ultimo:
+                    self._ultimo = msg
+                    await broadcast(msg)
             except AnalyzerError:
-                await asyncio.sleep(self.interval)
-                continue  # analyzer fora do ar: mantém o último estado
-            msg = panel_saude(report)
-            if msg != self._ultimo:
-                self._ultimo = msg
-                await broadcast(msg)
+                pass  # analyzer fora do ar: mantém o último estado
+            except Exception:
+                log.exception("HealthWorker: falha no ciclo; mantendo o último estado")
             await asyncio.sleep(self.interval)

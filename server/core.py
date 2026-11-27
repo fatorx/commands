@@ -102,18 +102,37 @@ class Command:
 
 
 class Registry:
-    """Catálogo de comandos por intent."""
+    """Catálogo de comandos por intent.
+
+    Há uma instância por conexão, então `state` guarda estado da sessão (ex.: o
+    snapshot de achados que os `item::N` consultam, para os índices não mudarem
+    no meio da navegação). Comandos parametrizados (`item::N`) usam prefixo.
+    """
 
     def __init__(self) -> None:
         self._commands: dict[str, Command] = {}
+        self._prefixes: dict[str, Command] = {}
+        self.state: dict = {}
 
     def register(self, command: Command) -> None:
         if command.intent in self._commands:
             raise ValueError(f"comando duplicado: {command.intent}")
         self._commands[command.intent] = command
 
+    def register_prefix(self, prefix: str, command: Command) -> None:
+        """Registra um comando que atende todo intent começando por `prefix`."""
+        if prefix in self._prefixes:
+            raise ValueError(f"prefixo duplicado: {prefix}")
+        self._prefixes[prefix] = command
+
     def get(self, intent: str) -> Command | None:
-        return self._commands.get(intent)
+        command = self._commands.get(intent)
+        if command is not None:
+            return command
+        for prefix, candidate in self._prefixes.items():
+            if intent.startswith(prefix):
+                return candidate
+        return None
 
 
 class Dispatcher:

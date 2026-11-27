@@ -135,6 +135,78 @@ async def test_infra_worker_ignora_falha_e_mantem_ultimo() -> None:
     assert empurrados[0]["data"]["semafaros"][0]["estado"] == "healthy"
 
 
+async def test_infra_worker_sobrevive_a_excecao_inesperada(caplog) -> None:
+    # Item 7: exceção qualquer (não só falha "esperada") não mata a task.
+    chamadas = 0
+
+    def snapshot():
+        nonlocal chamadas
+        chamadas += 1
+        if chamadas == 1:
+            raise RuntimeError("docker travou")
+        return [Semafaro("PostgreSQL", "healthy")]
+
+    empurrados = []
+
+    async def broadcast(msg):
+        empurrados.append(msg)
+
+    worker = InfraWorker(interval=0.01, stack_dir="/stack", snapshot_fn=snapshot)
+    task = asyncio.create_task(worker.run(broadcast))
+    await asyncio.sleep(0.05)
+    assert not task.done()  # continua viva
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(empurrados) == 1
+    assert "InfraWorker" in caplog.text
+
+
+async def test_infra_worker_sobrevive_a_falha_no_broadcast() -> None:
+    envios = 0
+
+    async def broadcast(msg):
+        nonlocal envios
+        envios += 1
+        raise RuntimeError("falha ao enviar")
+
+    seq = iter([[Semafaro("A", "healthy")], [Semafaro("A", "down")]] + [[Semafaro("A", "down")]] * 50)
+    worker = InfraWorker(interval=0.01, stack_dir="/stack", snapshot_fn=lambda: next(seq))
+    task = asyncio.create_task(worker.run(broadcast))
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert envios >= 1
+
+
+async def test_health_worker_sobrevive_a_excecao_inesperada(caplog) -> None:
+    chamadas = 0
+
+    def fetch():
+        nonlocal chamadas
+        chamadas += 1
+        if chamadas == 1:
+            raise ValueError("resposta bizarra")
+        return HealthReport.model_validate(EXEMPLO_RESPOSTA)
+
+    empurrados = []
+
+    async def broadcast(msg):
+        empurrados.append(msg)
+
+    worker = HealthWorker(interval=0.01, fetch_fn=fetch)
+    task = asyncio.create_task(worker.run(broadcast))
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(empurrados) == 1
+    assert "HealthWorker" in caplog.text
+
+
 def test_panel_saude_shape() -> None:
     from server.schemas import HealthReport
 
