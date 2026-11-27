@@ -117,22 +117,25 @@ Vanilla JS, sem build.
       const d = msg.data || {};
       corpo.textContent = `${d.branch || '—'} · ${d.alteracoes ?? 0} alterações`;
     } else if (msg.region === 'health') {
+      // Dado ausente aparece como "sem dados": um zero aqui pareceria "tudo certo".
       const d = msg.data || {};
-      const cx = d.complexidade_max || {};
+      const cx = d.complexidade_max;
       const rotulo = document.createElement('div');
       rotulo.className = 'barra-rotulo';
-      rotulo.textContent =
-        `Complexidade máx: ${cx.modulo || '—'} ${cx.score ?? 0} (${cx.nivel || ''})`;
+      rotulo.textContent = cx
+        ? `Complexidade máx: ${cx.modulo} ${cx.score} (${cx.nivel})`
+        : 'Complexidade máx: sem dados';
       const barra = document.createElement('div');
       barra.className = 'barra';
       const preenchimento = document.createElement('div');
       preenchimento.className = 'barra-preenchimento';
-      preenchimento.style.width = `${Math.min(100, ((cx.score || 0) / 25) * 100)}%`;
+      preenchimento.style.width = `${cx ? Math.min(100, (cx.score / 25) * 100) : 0}%`;
       barra.appendChild(preenchimento);
       const resumo = document.createElement('div');
       resumo.className = 'barra-rotulo';
-      resumo.textContent =
-        `Duplicação ${d.duplicacao_pct ?? 0}% · Alertas de arquitetura ${d.alertas_arquitetura ?? 0}`;
+      const duplicacao = d.duplicacao_pct == null ? 'sem dados' : `${d.duplicacao_pct}%`;
+      const alertas = d.alertas_arquitetura ?? 'sem dados';
+      resumo.textContent = `Duplicação ${duplicacao} · Alertas de arquitetura ${alertas}`;
       corpo.replaceChildren(rotulo, barra, resumo);
     }
   }

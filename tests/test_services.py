@@ -219,12 +219,33 @@ def test_panel_saude_shape() -> None:
 
 
 def test_panel_saude_sem_resumo() -> None:
-    from server.schemas import HealthReport
-
-    msg = panel_saude(HealthReport(duplicacoes=[]))
+    # Sem resumo não há número a mostrar: tudo nulo, nunca um zero inventado.
+    msg = panel_saude(
+        HealthReport(duplicacoes=[], pendencias=[], complexidade=[], resumo=None)
+    )
     assert msg["data"]["duplicacao_pct"] is None
-    assert msg["data"]["alertas_arquitetura"] == 0
+    assert msg["data"]["alertas_arquitetura"] is None
     assert msg["data"]["complexidade_max"] is None
+
+
+async def test_health_worker_registra_analyzer_rejeitado_uma_vez(caplog) -> None:
+    def fetch():
+        raise AnalyzerError("relatório do analyzer não valida contra o contrato")
+
+    empurrados = []
+
+    async def broadcast(msg):
+        empurrados.append(msg)
+
+    worker = HealthWorker(interval=0.01, fetch_fn=fetch)
+    task = asyncio.create_task(worker.run(broadcast))
+    await asyncio.sleep(0.05)  # vários ciclos com o mesmo erro
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert empurrados == []
+    avisos = [r for r in caplog.records if "não valida" in r.getMessage()]
+    assert len(avisos) == 1
 
 
 async def test_health_worker_debounce_e_tolera_analyzer_fora() -> None:

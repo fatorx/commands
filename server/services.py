@@ -179,7 +179,7 @@ def panel_saude(report: HealthReport) -> dict:
         "region": "health",
         "data": {
             "duplicacao_pct": resumo.duplicacao_pct if resumo else None,
-            "alertas_arquitetura": resumo.alertas_arquitetura if resumo else 0,
+            "alertas_arquitetura": resumo.alertas_arquitetura if resumo else None,
             "complexidade_max": (
                 {"modulo": cx.modulo, "score": cx.score, "nivel": cx.nivel} if cx else None
             ),
@@ -194,17 +194,23 @@ class HealthWorker:
         self.interval = interval
         self._fetch_fn = fetch_fn or fetch_health_report
         self._ultimo: dict | None = None
+        self._ultimo_erro: str | None = None
 
     async def run(self, broadcast) -> None:
         while True:
             try:
                 report = await asyncio.to_thread(self._fetch_fn)
+                self._ultimo_erro = None
                 msg = panel_saude(report)
                 if msg != self._ultimo:
                     self._ultimo = msg
                     await broadcast(msg)
-            except AnalyzerError:
-                pass  # analyzer fora do ar: mantém o último estado
+            except AnalyzerError as exc:
+                # Analyzer fora do ar ou fora do contrato: mantém o último estado e
+                # avisa uma vez por erro distinto (sem repetir a cada ciclo).
+                if str(exc) != self._ultimo_erro:
+                    self._ultimo_erro = str(exc)
+                    log.warning("HealthWorker: %s", exc)
             except Exception:
                 log.exception("HealthWorker: falha no ciclo; mantendo o último estado")
             await asyncio.sleep(self.interval)

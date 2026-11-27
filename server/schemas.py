@@ -6,10 +6,11 @@ re-exporta este módulo (reconciliado — não duplicado).
 
 PROVISIONAL. O modelo reflete a forma ASSUMIDA hoje — a mesma que o fake_analyzer
 devolve e que o saude_codigo consome. Quando você colar a saída REAL do seu Local
-Code Analyzer, reconciliamos aqui os nomes de campo e a estrutura. É exatamente
-neste ponto que a validação passa a pegar divergência de formato, em vez de virar
-um "0 duplicações" mudo (hoje o saude_codigo faz data.get("duplicacoes", []), então
-uma chave com outro nome no analisador real viraria lista vazia, silenciosa).
+Code Analyzer, reconciliamos aqui os nomes de campo e a estrutura.
+
+As chaves do relatório e do resumo são OBRIGATÓRIAS: chave ausente ou com outro
+nome é erro de validação, nunca um "0 duplicações" mudo. "Nada encontrado" se diz
+com lista vazia; "sem esse dado", com `null`. Campos extras são tolerados.
 
 Duas superfícies consomem este relatório, e cada uma puxa campos diferentes:
   - Zona B (lista varrível): a lista plana de achados (Finding) -> item::N -> detalhe.
@@ -17,7 +18,7 @@ Duas superfícies consomem este relatório, e cada uma puxa campos diferentes:
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Finding(BaseModel):
@@ -47,9 +48,9 @@ class HealthSummary(BaseModel):
     do Dia 3 precisa DERIVAR estes valores percorrendo a lista de achados.
     """
 
-    duplicacao_pct: float | None = None            # ex.: 5.0 -> "Duplicação 5% (Aprovado)"
-    complexidade_max: ComplexidadeMax | None = None
-    alertas_arquitetura: int = 0                    # ex.: 2 -> "2 rotas sem anotação de auth"
+    duplicacao_pct: float | None                    # ex.: 5.0 -> "Duplicação 5% (Aprovado)"
+    complexidade_max: ComplexidadeMax | None
+    alertas_arquitetura: int                        # ex.: 2 -> "2 rotas sem anotação de auth"
 
 
 class HealthReport(BaseModel):
@@ -62,11 +63,11 @@ class HealthReport(BaseModel):
     """
 
     # real-atual
-    duplicacoes: list[Finding] = Field(default_factory=list)
-    pendencias: list[Finding] = Field(default_factory=list)
+    duplicacoes: list[Finding]
+    pendencias: list[Finding]
     # provisional-para-o-cockpit
-    complexidade: list[Finding] = Field(default_factory=list)
-    resumo: HealthSummary | None = None
+    complexidade: list[Finding]
+    resumo: HealthSummary | None
 
 
 # Exemplo que valida contra o modelo. Duplo papel: documenta a forma esperada e

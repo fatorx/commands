@@ -155,7 +155,8 @@ async def test_indices_estaveis_durante_a_navegacao(session: Session, monkeypatc
     titulo_0 = msgs[0]["items"][0]["titulo"]
 
     def mudou():
-        return HealthReport()  # relatório agora vazio
+        # relatório agora vazio
+        return HealthReport(duplicacoes=[], pendencias=[], complexidade=[], resumo=None)
 
     monkeypatch.setattr("server.commands.fetch_health_report", mudou)
     msgs = await session.handle(IntentEnvelope("item::0"))
