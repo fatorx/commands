@@ -15,7 +15,8 @@ python3 run.py            # http://localhost:8000 (WebSocket no mesmo porto)
 ```
 
 Use **espaço/Enter** para selecionar na varredura (ou clique), setas para mover o cursor.
-Ações destrutivas pedem uma segunda confirmação. Mensagens são lidas por TTS (`pt-BR`).
+Ações destrutivas pedem uma segunda confirmação, com o cursor começando em **Cancelar**.
+Mensagens são lidas por TTS (`pt-BR`).
 
 ## Varredura (modos)
 
@@ -103,6 +104,7 @@ redes não confiáveis.
 ```bash
 python3 -m pytest
 python3 engine/schemas.py   # valida o contrato do /health-report
+node --test tests/client/scanner_test.js   # só a varredura (também rodado pelo pytest)
 ```
 
 ## Migrations (Alembic + PostgreSQL)
