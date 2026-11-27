@@ -89,7 +89,13 @@ intent handled by `server/app.py` `Session`.
   file you edit; keep pt-BR for user-facing strings/field names.
 - `server/schemas.py` is the **single source** of the `/health-report` boundary
   model (PROVISIONAL until the real analyzer output is pasted). `engine/schemas.py`
-  only re-exports it — don't duplicate or fork the models.
+  only re-exports it — don't duplicate or fork the models. All report and summary
+  keys are **required** (nullable where absence is meaningful): don't add defaults
+  back, or a divergent analyzer response turns into a silent empty report. The UI
+  shows missing values as "sem dados", never as zero.
+- Each compose file sets its own project `name:` (`cockpit-app`, `cockpit-demo`) so
+  their `db` services don't collide. The cockpit image installs the dev group because
+  the `testes` command runs pytest inside the container.
 - `ANALYZER_URL` unset ⇒ the analyzer adapter uses `fake_analyzer.py` (validated
   against `server/schemas.py`). Set it to hit the real `/health-report`.
 - The `testes` command runs the real pytest suite via subprocess. Don't write tests

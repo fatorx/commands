@@ -10,10 +10,11 @@ são resultado direto dessa execução, não suposição.
 
 ## Visão geral do que existe para testar
 
-- **Suíte pytest** (`tests/`): 33 testes — fluxo do protocolo (`test_flow.py`),
+- **Suíte pytest** (`tests/`): 80 testes — fluxo do protocolo (`test_flow.py`),
   workers de infra/saúde (`test_services.py`), adapter do analyzer
-  (`test_analyzer.py`) e estrutura das migrations Alembic
-  (`test_migrations.py`, sem tocar em banco real).
+  (`test_analyzer.py`), Host/Origin (`test_security.py`), estrutura das migrations
+  Alembic (`test_migrations.py`, sem tocar em banco real) e dois que rodam os testes
+  Node do cliente (`tests/client/`: reconexão e varredura).
 - **Validação de contrato**: `engine/schemas.py` roda um exemplo fixo contra o
   modelo Pydantic do `/health-report`.
 - **Duas stacks Docker distintas** (não confundir):
@@ -50,7 +51,7 @@ Ideal para desenvolvimento: reinício instantâneo, sem build de imagem.
 ```bash
 # 1. suíte de testes
 poetry run pytest -q
-# esperado: "33 passed in ~2s"
+# esperado: "80 passed in ~2s"
 
 # 2. contrato do /health-report (fake_analyzer, sem ANALYZER_URL)
 poetry run python3 engine/schemas.py
@@ -60,11 +61,10 @@ poetry run python3 engine/schemas.py
 poetry run python3 run.py
 ```
 
-Log esperado ao subir (`run.py` usa `print`, aparece imediatamente no
-terminal local — isso muda dentro do Docker, veja a pendência 1 abaixo):
+Log esperado ao subir:
 
 ```
-Cockpit em http://0.0.0.0:8000 (WebSocket no mesmo porto).
+Cockpit em http://127.0.0.1:8000 (WebSocket no mesmo porto).
 Workers: Infra poll 5s ...
 ```
 
@@ -100,12 +100,12 @@ docker compose -f docker-compose.cockpit.yml up -d --build
 Saída esperada (resumida): build da imagem, depois
 
 ```
-Container commands-db-1  Starting
-Container commands-db-1  Started
-Container commands-db-1  Waiting
-Container commands-db-1  Healthy
-Container commands-cockpit-1  Starting
-Container commands-cockpit-1  Started
+Container cockpit-app-db-1  Starting
+Container cockpit-app-db-1  Started
+Container cockpit-app-db-1  Waiting
+Container cockpit-app-db-1  Healthy
+Container cockpit-app-cockpit-1  Starting
+Container cockpit-app-cockpit-1  Started
 ```
 
 ```bash
@@ -114,11 +114,6 @@ docker compose -f docker-compose.cockpit.yml ps
 docker compose -f docker-compose.cockpit.yml logs -f cockpit
 docker compose -f docker-compose.cockpit.yml logs -f db
 ```
-
-> ⚠️ Ao testar isso, `logs -f cockpit` **não mostrou nada** logo após subir —
-> veja a pendência 1 (stdout bufferizado, falta `PYTHONUNBUFFERED=1` no
-> `Dockerfile`). O `curl` abaixo confirma que o servidor está de pé mesmo sem
-> log visível.
 
 ```bash
 # 3. confirmar que está respondendo
@@ -135,6 +130,7 @@ docker compose -f docker-compose.cockpit.yml exec cockpit alembic current
 ```bash
 # 5. rodar a suíte pytest dentro do próprio container (opcional, valida a imagem)
 docker compose -f docker-compose.cockpit.yml exec cockpit python3 -m pytest -q
+# esperado: "78 passed, 2 skipped" (a imagem não tem node; os testes do cliente pulam)
 ```
 
 ```bash
@@ -172,22 +168,14 @@ saudáveis primeiro).
 docker compose -f docker-compose.yml down
 ```
 
-> ⚠️ **Não rode os Modos B e C ao mesmo tempo sem isolar o nome do projeto** —
-> veja a pendência 2 abaixo: os dois arquivos compose, sem `-p`, competem pelo
-> mesmo projeto Compose (`commands`, o nome do diretório) e **ambos declaram
-> um serviço chamado `db`**, então subir um recria o container `db` do outro.
-> Se quiser os dois no ar juntos, isole com `-p`:
-
-```bash
-docker compose -p cockpit-app  -f docker-compose.cockpit.yml up -d --build
-docker compose -p cockpit-demo -f docker-compose.yml up -d
-```
+Os Modos B e C podem rodar juntos: cada manifesto define o próprio nome de
+projeto (`cockpit-app` e `cockpit-demo`).
 
 Para apontar os comandos `subir/derrubar/status_containers` para a stack real
 do `commands-stack` (não a demo), defina `STACK_DIR` no ambiente do cockpit
 (`docs/infra/DEFINITION-01.md` documenta essa stack — API/WS/workers FastAPI,
 Postgres, Redis, RabbitMQ, Nginx, tester Playwright). Isso **não foi testado
-neste guia** (veja pendência 4).
+neste guia** (veja pendência 2).
 
 ---
 
@@ -252,7 +240,7 @@ docker compose -f docker-compose.cockpit.yml logs -f          # tudo
 docker compose -f docker-compose.cockpit.yml logs -f cockpit   # só a app
 docker compose -f docker-compose.cockpit.yml ps                # snapshot de saúde
 watch -n 2 'docker compose -f docker-compose.cockpit.yml ps'   # snapshot ao vivo
-docker stats commands-cockpit-1 commands-db-1                  # CPU/memória
+docker stats cockpit-app-cockpit-1 cockpit-app-db-1            # CPU/memória
 ```
 
 Para ver o Infra Worker reagindo em tempo real: deixe o cockpit no ar (Modo
@@ -266,45 +254,25 @@ WS cruas (Modo E).
 
 Verificados nesta sessão ao rodar os comandos acima — não são hipóteses:
 
-1. **Logs do cockpit não aparecem em tempo real dentro do Docker.**
-   `docker compose -f docker-compose.cockpit.yml logs -f cockpit` ficou mudo
-   logo após o start, mesmo com o servidor respondendo (`curl` deu `200`).
-   Causa: `run.py` usa `print()` e o `Dockerfile` não define
-   `PYTHONUNBUFFERED=1`, então o stdout do processo fica com buffer de bloco
-   por não ser um TTY — as mensagens só "aparecem" quando o buffer enche ou o
-   processo termina. **Correção sugerida:** adicionar
-   `ENV PYTHONUNBUFFERED=1` ao `Dockerfile` (o `commands-stack` real, em
-   `docs/infra/DEFINITION-01.md`, já faz isso).
-
-2. **Colisão de nome de projeto entre os dois `docker-compose*.yml`.**
-   Nenhum dos dois arquivos define `name:`, então ambos caem no projeto
-   default `commands` (nome do diretório) — e **os dois declaram um serviço
-   `db`**. Reproduzido nesta sessão: subir `docker-compose.yml` depois de
-   `docker-compose.cockpit.yml` **recriou o container `db` do cockpit** (o
-   Postgres de persistência/migrations) e falhou ao recriar a rede para os
-   demais serviços da demo (`network ... not found`). **Correção sugerida:**
-   dar `name:` explícito a cada compose (ex.: `name: cockpit-app` /
-   `name: cockpit-demo`) ou sempre invocar com `-p`, como no Modo C acima.
-
-3. **Sem CI configurado.** Não há `.github/workflows` nem outro pipeline no
+1. **Sem CI configurado.** Não há `.github/workflows` nem outro pipeline no
    repo — a suíte só roda quando alguém lembra de rodar `pytest` (ou
    `alembic`/build de imagem) manualmente. Vale considerar um workflow mínimo
    (pytest + `docker build`) antes do v1 "usável no dia a dia" mencionado em
    `docs/PLAN_V1.md`.
 
-4. **`STACK_DIR` apontando para a stack real (`commands-stack`) não foi
+2. **`STACK_DIR` apontando para a stack real (`commands-stack`) não foi
    testado neste guia** — só a stack de demonstração (`docker-compose.yml`)
    foi validada. Antes de usar em produção/dia a dia, validar
    `subir_containers`/`status_containers`/`derrubar_containers` com
    `STACK_DIR=<caminho do commands-stack>` de fato apontando para o projeto
    descrito em `docs/infra/DEFINITION-01.md`.
 
-5. **`ANALYZER_URL` real ainda não integrado.** Todo o fluxo `saude_codigo`
+3. **`ANALYZER_URL` real ainda não integrado.** Todo o fluxo `saude_codigo`
    testado aqui usa `fake_analyzer.py` (dublê). O adapter real
    (`server/analyzer.py` contra um `/health-report` de verdade) é trabalho do
    "Dia 3" do `docs/PLAN_V1.md` e não foi exercitado neste guia.
 
-6. **Testes de migration são só estruturais.** `tests/test_migrations.py`
+4. **Testes de migration são só estruturais.** `tests/test_migrations.py`
    valida o grafo Alembic (config, head, que a marcadora não toca em schema)
    mas **não roda `upgrade`/`downgrade` contra um banco real** dentro da
    suíte automatizada — isso só foi confirmado manualmente no Modo B (passo
@@ -312,14 +280,11 @@ Verificados nesta sessão ao rodar os comandos acima — não são hipóteses:
    `0001_infra_base`, vale um teste de integração que suba um Postgres
    (`testcontainers` ou serviço no CI) e rode `upgrade head` de verdade.
 
-7. **Client sem teste automatizado próprio.** `client/` (vanilla JS,
-   build-free) não tem suíte própria neste repo — a stack real
-   (`commands-stack`, `docs/infra/DEFINITION-01.md`) tem um serviço `tester`
-   com Playwright, mas ele testa o client daquele projeto, não o
-   `client/` deste cockpit. Testar a varredura/scanner hoje é manual (Modo A
-   ou B + navegador).
+5. **Cliente testado só em parte.** `tests/client/` cobre a reconexão e a
+   varredura em Node; a renderização (`client/app.js`), o áudio, o TTS e o uso
+   com switch físico continuam sendo conferidos à mão (Modo A ou B + navegador).
 
-8. **Imagens não pinadas em `docker-compose.yml`.** `redis:alpine` e
+6. **Imagens não pinadas em `docker-compose.yml`.** `redis:alpine` e
    (na stack real) `nginx:alpine` usam tag flutuante — um `docker compose
    pull` pode trazer uma versão nova sem aviso. Pin recomendado:
    `redis:7-alpine` etc., para telemetria reproduzível.

@@ -78,6 +78,9 @@ próprio cockpit roda com o manifest próprio:
 docker compose -f docker-compose.cockpit.yml up -d --build
 ```
 
+Cada manifest tem nome de projeto próprio (`cockpit-app` e `cockpit-demo`), então as
+duas stacks sobem juntas sem disputar o serviço `db`.
+
 A imagem traz o CLI do docker + plugin compose e o manifest monta
 `/var/run/docker.sock`, para o cockpit controlar a stack pelo daemon do host.
 Atenção: acesso ao socket equivale a root no host — não exponha a porta 8000 a
@@ -96,7 +99,7 @@ redes não confiáveis.
 | `STACK_DIR` | raiz do repo | diretório do compose controlado por `subir/derrubar/status_containers` |
 | `INFRA_POLL_SECONDS` | `5` | intervalo de leitura do Infra Worker (push de semáforos) |
 | `HEALTH_POLL_SECONDS` | `10` | intervalo de leitura do Health Worker (card de saúde do código) |
-| `ANALYZER_URL` | — | URL do Local Code Analyzer real (Dia 8) |
+| `ANALYZER_URL` | — | URL do Local Code Analyzer real (Dia 8); a resposta precisa trazer todas as chaves do contrato (`server/schemas.py`), senão é rejeitada |
 | `DATABASE_URL` | `postgresql+psycopg://cockpit:cockpit@localhost:5432/cockpit` | DSN do Postgres usado pelo Alembic |
 
 ## Testes
