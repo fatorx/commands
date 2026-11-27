@@ -7,6 +7,14 @@ ENV POETRY_VIRTUALENVS_CREATE=false \
 
 WORKDIR /app
 
+# CLI do docker + plugin compose (binários estáticos): o cockpit controla a stack
+# via `docker compose`, falando com o daemon do host pelo socket montado no
+# docker-compose.cockpit.yml. Sem isso, subir/derrubar/status e o InfraWorker
+# falhariam com "docker não encontrado".
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-compose \
+     /usr/local/libexec/docker/cli-plugins/docker-compose
+
 RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
 COPY pyproject.toml poetry.lock ./

@@ -8,20 +8,27 @@ respondido com o arquivo; handshake `Upgrade: websocket` segue para o handler).
 from __future__ import annotations
 
 import asyncio
+import logging
 import mimetypes
 import os
 from pathlib import Path
 
 import websockets
-from websockets.http import Headers
+from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 from server.app import DEFAULT_WS_HOST, DEFAULT_WS_PORT, broadcast, connection_handler
+from server.security import allowed_hosts_from_env, allowed_origins_from_env, check_request
 from server.services import HealthWorker, InfraWorker
 
 CLIENT_DIR = Path(__file__).parent / "client"
 
+# Padrão seguro: só loopback. O cockpit controla o docker do host; expor em
+# 0.0.0.0 é decisão explícita (HOST=0.0.0.0, como faz o Docker, que publica a
+# porta só em 127.0.0.1).
 HOST = os.environ.get("HOST", DEFAULT_WS_HOST)
+ALLOWED_HOSTS = allowed_hosts_from_env()
+ALLOWED_ORIGINS = allowed_origins_from_env()
 PORT = int(os.environ.get("PORT", "8000"))
 INFRA_POLL_SECONDS = int(os.environ.get("INFRA_POLL_SECONDS", "5"))
 HEALTH_POLL_SECONDS = int(os.environ.get("HEALTH_POLL_SECONDS", "10"))
@@ -46,13 +53,23 @@ def _static_response(path: str) -> Response:
 
 
 async def process_request(connection, request) -> Response | None:
-    """Requisição HTTP pura -> arquivo estático; handshake WS -> segue o handler."""
+    """Host/Origin checados primeiro; HTTP puro -> estático; handshake WS -> handler."""
+    motivo = check_request(
+        request.headers.get("Host"),
+        request.headers.get("Origin"),
+        allowed_hosts=ALLOWED_HOSTS,
+        allowed_origins=ALLOWED_ORIGINS,
+    )
+    if motivo:
+        logging.getLogger(__name__).warning("requisição recusada: %s", motivo)
+        return Response(403, "Forbidden", Headers(), b"forbidden")
     if request.headers.get("Upgrade", "").lower() == "websocket":
         return None
     return _static_response(request.path)
 
 
 async def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     print(f"Cockpit em http://{HOST}:{PORT} (WebSocket no mesmo porto).")
     infra = InfraWorker(interval=INFRA_POLL_SECONDS)
     saude = HealthWorker(interval=HEALTH_POLL_SECONDS)
